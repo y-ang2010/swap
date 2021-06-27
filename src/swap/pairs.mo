@@ -8,30 +8,35 @@ import Float "mo:base/Float";
 import Int64 "mo:base/Int64";
 import Time "mo:base/Time";
 import Principal "mo:base/Principal";
+//import Main "./main"
 
 
-actor Pairs {
+shared(msg) actor class Pairs(_token0 : Principal, _token1 : Principal, _feeTo : Principal, self : Principal) {
     type Address = Principal;
     //type OpRecordIn = OpRecord.OpRecordIn;
 
-    let MINIMUM_LIQUIDITY : Nat64 = 10**3;
-    let ZeroAddress : Principal = Principal.fromText("");
+    let MINIMUM_LIQUIDITY : Nat64 = 1000;
+
+    let zero : Text = "0000";
+    let ZeroAddress  = Principal.fromText(zero);
 
 
     private stable var reserve0 : Nat64 = 0; // 储备量0
     private stable var reserve1 : Nat64 = 0; // 储备量1
     private stable var totalSupply : Nat64 = 0;
-    private stable var balanceOf = HashMap.HashMap<Address, Nat64>(1, Types.AddressEq, Types.AddressHash);
+
+    private var balanceOf = HashMap.HashMap<Address, Nat64>(1, Principal.equal, Principal.hash);
+
     private stable var blockTimestampLast : Time.Time = 0;
 
-    public stable var kLast : Nat64 = 0;                  // reserve0 * reserve1, as of immediately after the most recent liquidity event
-    public stable var price0CumulativeLast : Nat64 = 0;   //价格0,最后累计值。在周边合约的预言机中有使用到
-    public stable var price1CumulativeLast : Nat64 = 0;   //价格1,最后累计值。（https://github.com/Uniswap/uniswap-v2-periphery/blob/master/contracts/examples/ExampleOracleSimple.sol）
+    private stable var kLast : Nat64 = 0;                  // reserve0 * reserve1, as of immediately after the most recent liquidity event
+    private stable var price0CumulativeLast : Nat64 = 0;   //价格0,最后累计值。在周边合约的预言机中有使用到
+    private stable var price1CumulativeLast : Nat64 = 0;   //价格1,最后累计值。（https://github.com/Uniswap/uniswap-v2-periphery/blob/master/contracts/examples/ExampleOracleSimple.sol）
     
-    public stable var token0 : Address = "";              // tA
-    public stable var token1 : Address = "";              // tB
-    public stable var feeTo  : Address = "";
-
+    private stable var token0 : Address = ZeroAddress;              // tA
+    private stable var token1 : Address = ZeroAddress;              // tB
+    private stable var feeTo  : Address = ZeroAddress;
+    private stable var localCid : Principal = self;
 
 
    private func _update(
@@ -151,7 +156,7 @@ actor Pairs {
         token0 := _token0;
         token1 := _token1;
         blockTimestampLast := Time.now();
-        feeTo := Principal.fromActor(Second);
+        //feeTo := Principal.fromActor(LocalCanister);
         let eq = Principal.notEqual(_feeTo ,ZeroAddress);
         if eq {
             feeTo := _feeTo;
@@ -163,10 +168,7 @@ actor Pairs {
         //var  feeTo : Address = IUniswapV2Factory(factory).feeTo();
 
         // 定义个bool，如果feeTo地址为0，表示不收费
-        var feeOn : Bool = false;
-        if (feeTo != "") {
-            feeOn := true;
-        };
+        let feeOn = Principal.notEqual( feeTo, ZeroAddress);
      
         let _kLast = kLast; // gas savings    恒定乘积做市商     x * y = k     上次收取费用的增长
         if (feeOn) {
@@ -306,23 +308,31 @@ actor Pairs {
         // }
         assert(amount0 > 0 and amount1 > 0);
         // 使用erc20的销毁方法，为当前合约地址销毁流动性
-        let localCid : Principal = Principal.fromActor(Pairs);
+        //let localCid : Principal = Principal.fromActor(Pairs);
 
-        _burn(Principal.toText(localCid), liquidity);
+        _burn(localCid, liquidity);
 
         // 调用安全发送方法，分别将t0取出的amount0和t1取出的amount1发送给to地址
-        _safeTransfer(_token0, to, amount0);
-        _safeTransfer(_token1, to, amount1);
+        //_safeTransfer(_token0, to, amount0);
+        //_safeTransfer(_token1, to, amount1);
 
         // 取出当前地址在合约上t0和t1的余额
-        balance0 := IERC20(_token0).balanceOf(address(this));
-        balance1 := IERC20(_token1).balanceOf(address(this));
+        //balance0 := IERC20(_token0).balanceOf(address(this));
+        //balance1 := IERC20(_token1).balanceOf(address(this));
+
+        // let canister0 = actor(_token0): actor { getValue: () -> async Principal };
+        // let balance = await canister0.getValue();
+
 
         // 更新储备量
         _update(balance0, balance1, _reserve0, _reserve1);
 
         // 如果开启了收取协议费用，则 kLast = x * y
-        if (feeOn) {kLast := uint(reserve0).mul(reserve1); }; // reserve0 and reserve1 are up-to-date
+        if (feeOn) {
+            kLast := Nat64.mul(reserve0, reserve1); 
+        }; // reserve0 and reserve1 are up-to-date
+
+        return (balance0, balance1);
 
         // 触发销毁事件
         // msg.sender 此时应该为路由合约地址
@@ -342,7 +352,7 @@ actor Pairs {
       
         assert(amount0Out > 0 or amount1Out > 0);
         // 获取储备量0和储备量1
-        let (_reserve0, _reserve1,) = getReserves(); // gas savings
+        let (_reserve0, _reserve1, lastime) = await getReserves(); // gas savings
 
         // 校验取出数额0小于储备量0  &&  取出数额1小于储备量1
         //require(amount0Out < _reserve0 && amount1Out < _reserve1, 'UniswapV2: INSUFFICIENT_LIQUIDITY');
@@ -359,8 +369,8 @@ actor Pairs {
             assert(to != _token0 and to != _token1);
 
             // 确认取出数额大于0 ，就分别将t0和t1的数额安全发送到to地址
-            if (amount0Out > 0) _safeTransfer(_token0, to, amount0Out); // optimistically transfer tokens
-            if (amount1Out > 0) _safeTransfer(_token1, to, amount1Out); // optimistically transfer tokens
+            //if (amount0Out > 0) _safeTransfer(_token0, to, amount0Out); // optimistically transfer tokens
+            //if (amount1Out > 0) _safeTransfer(_token1, to, amount1Out); // optimistically transfer tokens
 
             // 如果data长度大于0 ，调用to地址的接口
             // if (data.length > 0)
@@ -368,8 +378,8 @@ actor Pairs {
             //     IUniswapV2Callee(to).uniswapV2Call(msg.sender, amount0Out, amount1Out, data);
 
             // 获取最新的t0和t1余额
-            balance0 := IERC20(_token0).balanceOf(address(this));
-            balance1 := IERC20(_token1).balanceOf(address(this));
+            //balance0 := IERC20(_token0).balanceOf(address(this));
+            //balance1 := IERC20(_token1).balanceOf(address(this));
         //}
 
         // amountIn = balance - (_reserve - amountOut)
@@ -388,11 +398,11 @@ actor Pairs {
         assert(amount0In > 0 or amount1In > 0);
         //{ // scope for reserve{0,1}Adjusted, avoids stack too deep errors
             // 调整后的余额 = 最新余额 - 扣税金额 （相当于乘以997/1000）
-        let balance0Adjusted = balance0.mul(1000).sub(amount0In.mul(3));
-        let balance1Adjusted = balance1.mul(1000).sub(amount1In.mul(3));
+        let balance0Adjusted = Nat64.sub(Nat64.mul(balance0, 1000), Nat64.mul(amount0In, 3));
+        let balance1Adjusted = Nat64.sub(Nat64.mul(balance1, 1000), Nat64.mul(amount1In, 3));
             // 校验是否进行了扣税计算
             //require(balance0Adjusted.mul(balance1Adjusted) >= uint(_reserve0).mul(_reserve1).mul(1000**2), 'UniswapV2: K');
-        assert(balance0Adjusted.mul(balance1Adjusted) >= uint(_reserve0).mul(_reserve1).mul(1000**2))
+        assert(Nat64.mul(balance0Adjusted,balance1Adjusted) >= Nat64.mul(Nat64.mul(_reserve0, _reserve1),1000 *100));
         //}
 
         // 更新储备量
@@ -401,14 +411,4 @@ actor Pairs {
         // 记录交换事件
         //record(msg.sender, amount0In, amount1In, amount0Out, amount1Out, to)
     };
-};
-   
- 
-     
-
-
-
-
-   
-
- 
+} ;

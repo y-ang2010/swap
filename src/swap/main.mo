@@ -1,7 +1,7 @@
 import pairs "./pairs";
 import Principal "mo:base/Principal";
 
-actor {
+actor LocalCanister{
     public func greet(name : Text) : async Text {
         return "Hello, " # name # "!";
     };
@@ -10,8 +10,9 @@ actor {
         // 部署2个合约，并且获取它们的Address
         let token0  = Principal.fromText("1234500");
         let token1  = Principal.fromText("1234501");
-        let feeTo   = Principal.fromText("1234502");
-        //pairs.Pairs(token0, token1, feeTo);
+        let feeTo   = Principal.fromActor(LocalCanister);
+
+        let p = pairs.Pairs(token0, token1, feeTo, feeTo);
 
         return "pairs token0:" ;//# token0.toText() # "token1:" # token1.toText() # "feeTo:" # feeTo.ToText() ;
     };
