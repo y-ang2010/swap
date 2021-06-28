@@ -8,6 +8,7 @@ import Float "mo:base/Float";
 import Int64 "mo:base/Int64";
 import Time "mo:base/Time";
 import Principal "mo:base/Principal";
+import Debug "mo:base/Debug"
 //import Main "./main"
 
 
@@ -16,10 +17,6 @@ shared(msg) actor class Pairs(_token0 : Principal, _token1 : Principal, _feeTo :
     //type OpRecordIn = OpRecord.OpRecordIn;
 
     let MINIMUM_LIQUIDITY : Nat64 = 1000;
-
-    let zero : Text = "0000";
-    let ZeroAddress  = Principal.fromText(zero);
-
 
     private stable var reserve0 : Nat64 = 0; // 储备量0
     private stable var reserve1 : Nat64 = 0; // 储备量1
@@ -33,18 +30,25 @@ shared(msg) actor class Pairs(_token0 : Principal, _token1 : Principal, _feeTo :
     private stable var price0CumulativeLast : Nat64 = 0;   //价格0,最后累计值。在周边合约的预言机中有使用到
     private stable var price1CumulativeLast : Nat64 = 0;   //价格1,最后累计值。（https://github.com/Uniswap/uniswap-v2-periphery/blob/master/contracts/examples/ExampleOracleSimple.sol）
     
-    private stable var token0 : Address = ZeroAddress;              // tA
-    private stable var token1 : Address = ZeroAddress;              // tB
-    private stable var feeTo  : Address = ZeroAddress;
+    private stable var token0 : Address = _token0;              // tA
+    private stable var token1 : Address = _token1;              // tB
+    private stable var feeTo  : Address = _feeTo;
     private stable var localCid : Principal = self;
 
 
-   private func _update(
+    let t1 = Principal.toText( msg.caller);
+    let t2 = Principal.toText(feeTo);
+
+    Debug.print("pairs 1 " # t1);
+    Debug.print("pairs 2" # t2);
+
+
+    private func _update(
          balance0 : Nat64,           // 余额0
          balance1 : Nat64,           // 余额1
          _reserve0 : Nat64,       // 储备0
          _reserve1 : Nat64        // 储备1
-    ) {
+        ) {
         // 校验余额0和余额1小等于uint112的最大数值，防止溢出
         //require(balance0 <= uint112(-1) && balance1 <= uint112(-1), 'UniswapV2: OVERFLOW');
 
@@ -152,23 +156,23 @@ shared(msg) actor class Pairs(_token0 : Principal, _token1 : Principal, _feeTo :
         return (_reserve0, _reserve1, _blockTimestampLast);
     };
 
-    public func initialize( _token0 : Address, _token1 : Address, _feeTo : Address)  {
-        token0 := _token0;
-        token1 := _token1;
-        blockTimestampLast := Time.now();
-        //feeTo := Principal.fromActor(LocalCanister);
-        let eq = Principal.notEqual(_feeTo ,ZeroAddress);
-        if eq {
-            feeTo := _feeTo;
-        };
-    };
+    // public shared(msg) func initialize( _token0 : Address, _token1 : Address, _feeTo : Address)  {
+    //     token0 := _token0;
+    //     token1 := _token1;
+    //     blockTimestampLast := Time.now();
+    //     //feeTo := Principal.fromActor(LocalCanister);
+    //     let eq = Principal.notEqual(_feeTo ,ZeroAddress);
+    //     if eq {
+    //         feeTo := _feeTo;
+    //     };
+    // };
 
 
     private func _mintFee(_reserve0 : Nat64,  _reserve1 : Nat64) : async Bool {
         //var  feeTo : Address = IUniswapV2Factory(factory).feeTo();
 
         // 定义个bool，如果feeTo地址为0，表示不收费
-        let feeOn = Principal.notEqual( feeTo, ZeroAddress);
+        let feeOn = true;
      
         let _kLast = kLast; // gas savings    恒定乘积做市商     x * y = k     上次收取费用的增长
         if (feeOn) {
@@ -231,7 +235,7 @@ shared(msg) actor class Pairs(_token0 : Principal, _token1 : Principal, _feeTo :
             let toFloat = Float.fromInt64( Int64.fromNat64(diff));
             liquidity := Int64.toNat64(Float.toInt64(Float.sqrt(toFloat)));
             //在总量为0的初始状态,永久锁定最低流动性(将它们发送到零地址，而不是发送到铸造者。)
-           _mint(ZeroAddress, MINIMUM_LIQUIDITY);            // permanently lock the first MINIMUM_LIQUIDITY tokens
+           _mint(self, MINIMUM_LIQUIDITY);            // permanently lock the first MINIMUM_LIQUIDITY tokens
         } else {
             //流动性 = 最小值 (amount0 * _totalSupply / _reserve0) 和 (amount1 * _totalSupply / _reserve1)
             liquidity := Nat64.min(Nat64.div(Nat64.mul(amount0,_totalSupply) , reserve0), Nat64.div(Nat64.mul(amount1,_totalSupply), reserve1));
@@ -277,7 +281,7 @@ shared(msg) actor class Pairs(_token0 : Principal, _token1 : Principal, _feeTo :
         // removeLiquidity  ==》  IUniswapV2Pair(pair).transferFrom(msg.sender, pair, liquidity);
         //let liquidity = balanceOf[address(this)];
         // 怎样获得本合约地址
-        let liquidity = switch (balanceOf.get(ZeroAddress)){
+        let liquidity = switch (balanceOf.get(self)){
             case (? value){
                 value;
             };
